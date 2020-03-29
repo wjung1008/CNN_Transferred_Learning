@@ -69,6 +69,7 @@ validation_generator = training_data_generator.flow_from_directory(
 
 
 #%%
+# CNN Model
 from keras.applications.vgg16 import VGG16
 from tensorflow.python import keras
 
@@ -90,22 +91,115 @@ x = Dense(2048, activation='relu', name='fc2')(x)
 x = Dropout(0.5)(x)
 x = Dense(4, activation='softmax', name='predictions')(x)
 
-#Create your own model 
+# Define input and output of model 
 model_final = Model(input=input, output=x)
 
+# Combine the defined model with proper loss, optimizer
+# Metric shows the real-time results every batch
 model_final.compile(loss = "binary_crossentropy", optimizer = 'SGD', metrics=["binary_accuracy"])
 
-
-checkpoint = ModelCheckpoint("vgg16_2.h5", monitor='val_loss', verbose=1, save_best_only=True, save_weights_only=False, mode='min', period=1)
+# Monitor validation loss and saves the model when it reaches minimum value
+checkpoint = ModelCheckpoint("SOFTMAX_FINAL.h5", monitor='val_loss', verbose=1, save_best_only=True, save_weights_only=False, mode='min', period=1)
+# Monitor validation accuracy and stops training if the model does not improve for patient number of epochs
 early = EarlyStopping(monitor='val_binary_accuracy', min_delta=0, patience=20, verbose=1, mode='max')
+
+# Input using training generator defined above with number of epochs
+# Need to call defined checkpoint and early stopping defined above here as callbacks
 model_final.fit_generator(generator= training_generator, steps_per_epoch= len(training_generator.filenames) // BATCH_SIZE, 
                           epochs= 100, validation_data= validation_generator, validation_steps=len(validation_generator.filenames) // BATCH_SIZE, 
                           callbacks=[checkpoint,early])
-#model_final.save_weights("vgg16.h5")
-
+#model_final.save_weights("SOFTMAX_FINAL.h5")
 
 
 #%%
+model_final.load_weights('SOFTMAX_FINAL.h5')
+
+gen = ImageDataGenerator(preprocessing_function=preprocess)
+iterator = gen.flow_from_directory(
+    test_dir, 
+    batch_size=80,
+    target_size=(img_size,img_size), shuffle=False) 
+#    classes=('AP','HB','TN'))
+
+gen_show = ImageDataGenerator()
+iterator_show = gen_show.flow_from_directory(
+    test_dir, 
+    batch_size=80,
+    target_size=(img_size,img_size), shuffle=False)
+#    classes=('AP','HB','TN'))
+# we can guess that the iterator has a next function, 
+# because all python iterators have one. 
+batch = iterator.next()
+batch_show = iterator_show.next()
+
+imgs = batch[0]
+imgs_show = batch_show[0]
+labels = batch[1]
+
+ncols, nrows = 8,10
+fig = plt.figure( figsize=(ncols*3, nrows*3), dpi=90)
+plt.subplots_adjust(left=0.125, bottom=0.1, right=0.9, top=0.9, wspace=0.8, hspace=0.8)
+predicted = []
+
+for i, (img_show, img,label) in enumerate(zip(imgs_show, imgs,labels)):
+    plt.subplot(nrows, ncols, i+1)
+    plt.imshow(img_show.astype(np.int))
+    preds = model_final.predict(img[np.newaxis,...])
+    preds = (np.round(preds*100))
+    predicted.append(preds)
+#    plt.title( 'Predicted: {} \n Actual: {}'.format(str(preds), str(label)))
+    plt.title( '{} \n {}'.format(str(preds), str(label)))
+
+    plt.axis('off')
+    
+# idx = random.randint(1,32)
+# preds = model_final.predict(imgs[idx,np.newaxis,...])
+# preds = np.around(preds*100,0)
+
+# plt.title( 'Predicted: {} \n Actual: {}'.format(str(preds), str(labels[idx,:])))
+# plt.axis('off')
+# plt.imshow(imgs_show[idx,...])
+
+#%%
+#image_list = []
+#for filename in glob(os.path.join(test_dir, '*.jpg')):
+#     im = misc.imread(filename)
+#     print('reading', filename)
+#     im = cv2.resize(im, dsize=(128, 128), interpolation=cv2.INTER_CUBIC)
+#     image_list.append(im[np.newaxis,...]/255)
+#
+# image_list = np.concatenate((image_list), axis=0)
+
+model = VGG16()
+# summarize feature map shapes
+for i in range(len(model.layers)):
+	layer = model.layers[i]
+# redefine model to output right after the first hidden layer
+feature1 = Model(inputs=model.inputs, outputs=model.layers[15].output)
+feature2 = Model(inputs=model.inputs, outputs=model.layers[17].output)
+
+feature_map1 = feature1.predict(np.expand_dims(img,axis=0))
+feature_map2 = feature2.predict(np.expand_dims(img,axis=0))
+
+feature_map = np.concatenate((feature_map1,feature_map2),axis=3)
+
+# plot all 64 maps in an 8x8 squares
+square = 8
+ix = 1
+for _ in range(2):
+    for _ in range(5):
+		# specify subplot and turn of axis
+        ax = plt.subplot(2, 5, ix)
+        ax.set_xticks([])
+        ax.set_yticks([])
+        idx = random.randint(1,feature_map.shape[3])
+		# plot filter channel in grayscale
+        plt.imshow(feature_map[0, :, :, idx],cmap='gray')
+        ix += 1
+# show the figure
+plt.show()
+#%%
+# Auto-Encoder part
 from tensorflow.keras.layers import *
 from tensorflow.keras.models import Model
 
@@ -237,91 +331,5 @@ fig, ax = plt.subplots(1, 2)
 ax[0].scatter(X_tsne[:,0],X_tsne[:,1],
 	 c=np.argmax(labels, axis=1) ,s=8, cmap='tab10')
 
-#%%
-model_final.load_weights('SOFTMAX_FINAL.h5')
 
-gen = ImageDataGenerator(preprocessing_function=preprocess)
-iterator = gen.flow_from_directory(
-    test_dir, 
-    batch_size=80,
-    target_size=(img_size,img_size), shuffle=False) 
-#    classes=('AP','HB','TN'))
-
-gen_show = ImageDataGenerator()
-iterator_show = gen_show.flow_from_directory(
-    test_dir, 
-    batch_size=80,
-    target_size=(img_size,img_size), shuffle=False)
-#    classes=('AP','HB','TN'))
-# we can guess that the iterator has a next function, 
-# because all python iterators have one. 
-batch = iterator.next()
-batch_show = iterator_show.next()
-
-imgs = batch[0]
-imgs_show = batch_show[0]
-labels = batch[1]
-
-ncols, nrows = 8,10
-fig = plt.figure( figsize=(ncols*3, nrows*3), dpi=90)
-plt.subplots_adjust(left=0.125, bottom=0.1, right=0.9, top=0.9, wspace=0.8, hspace=0.8)
-predicted = []
-
-for i, (img_show, img,label) in enumerate(zip(imgs_show, imgs,labels)):
-    plt.subplot(nrows, ncols, i+1)
-    plt.imshow(img_show.astype(np.int))
-    preds = model_final.predict(img[np.newaxis,...])
-    preds = (np.round(preds*100))
-    predicted.append(preds)
-#    plt.title( 'Predicted: {} \n Actual: {}'.format(str(preds), str(label)))
-    plt.title( '{} \n {}'.format(str(preds), str(label)))
-
-    plt.axis('off')
-    
-# idx = random.randint(1,32)
-# preds = model_final.predict(imgs[idx,np.newaxis,...])
-# preds = np.around(preds*100,0)
-
-# plt.title( 'Predicted: {} \n Actual: {}'.format(str(preds), str(labels[idx,:])))
-# plt.axis('off')
-# plt.imshow(imgs_show[idx,...])
-
-#%%
-#image_list = []
-#for filename in glob(os.path.join(test_dir, '*.jpg')):
-#     im = misc.imread(filename)
-#     print('reading', filename)
-#     im = cv2.resize(im, dsize=(128, 128), interpolation=cv2.INTER_CUBIC)
-#     image_list.append(im[np.newaxis,...]/255)
-#
-# image_list = np.concatenate((image_list), axis=0)
-
-model = VGG16()
-# summarize feature map shapes
-for i in range(len(model.layers)):
-	layer = model.layers[i]
-# redefine model to output right after the first hidden layer
-feature1 = Model(inputs=model.inputs, outputs=model.layers[15].output)
-feature2 = Model(inputs=model.inputs, outputs=model.layers[17].output)
-
-feature_map1 = feature1.predict(np.expand_dims(img,axis=0))
-feature_map2 = feature2.predict(np.expand_dims(img,axis=0))
-
-feature_map = np.concatenate((feature_map1,feature_map2),axis=3)
-
-# plot all 64 maps in an 8x8 squares
-square = 8
-ix = 1
-for _ in range(2):
-    for _ in range(5):
-		# specify subplot and turn of axis
-        ax = plt.subplot(2, 5, ix)
-        ax.set_xticks([])
-        ax.set_yticks([])
-        idx = random.randint(1,feature_map.shape[3])
-		# plot filter channel in grayscale
-        plt.imshow(feature_map[0, :, :, idx],cmap='gray')
-        ix += 1
-# show the figure
-plt.show()
 
