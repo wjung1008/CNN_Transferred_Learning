@@ -47,6 +47,7 @@ training_data_generator = ImageDataGenerator(
     validation_split=0.3,
     preprocessing_function=preprocess)
 
+# Define image size and batch size
 img_size = 224 
 BATCH_SIZE = 16
 
@@ -78,10 +79,10 @@ vggmodel = VGG16(weights='imagenet', include_top=False)
 # Defining input dimension
 input = Input(shape=(224,224,3),name = 'image_input')
 
-# Using the generated model 
+# Input to imported vgg model
 output_vgg16_conv = vggmodel(input)
 
-#Add the fully-connected layers 
+# Add the fully-connected layers 
 x = GlobalAveragePooling2D()(output_vgg16_conv)
 x = Dense(2048, activation='relu', name='fc1')(x)
 x = Dropout(0.5)(x)
