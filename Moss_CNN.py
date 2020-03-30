@@ -112,97 +112,88 @@ model_final.fit_generator(generator= training_generator, steps_per_epoch= len(tr
 
 
 #%%
-model_final.load_weights('SOFTMAX_FINAL.h5')
+# Load saved model
+model = load_model('SOFTMAX_FINAL.h5')
+#model_final.load_weights('SOFTMAX_FINAL.h5')
 
+# Import test images for inputting to the network (requires pre-processing)
 gen = ImageDataGenerator(preprocessing_function=preprocess)
 iterator = gen.flow_from_directory(
     test_dir, 
     batch_size=80,
     target_size=(img_size,img_size), shuffle=False) 
-#    classes=('AP','HB','TN'))
 
+# Import test images for Visualization (does not require pre-processing)
 gen_show = ImageDataGenerator()
 iterator_show = gen_show.flow_from_directory(
     test_dir, 
     batch_size=80,
     target_size=(img_size,img_size), shuffle=False)
-#    classes=('AP','HB','TN'))
-# we can guess that the iterator has a next function, 
-# because all python iterators have one. 
+
+# Save imported test images into batch
 batch = iterator.next()
 batch_show = iterator_show.next()
 
+# Seperate Images and labels
 imgs = batch[0]
 imgs_show = batch_show[0]
 labels = batch[1]
 
+# Define figure window size
 ncols, nrows = 8,10
 fig = plt.figure( figsize=(ncols*3, nrows*3), dpi=90)
 plt.subplots_adjust(left=0.125, bottom=0.1, right=0.9, top=0.9, wspace=0.8, hspace=0.8)
 predicted = []
 
+# Print images on the defined figure above
 for i, (img_show, img,label) in enumerate(zip(imgs_show, imgs,labels)):
     plt.subplot(nrows, ncols, i+1)
     plt.imshow(img_show.astype(np.int))
-    preds = model_final.predict(img[np.newaxis,...])
+    preds = model_final.predict(img[np.newaxis,...]) # predict test images
     preds = (np.round(preds*100))
     predicted.append(preds)
-#    plt.title( 'Predicted: {} \n Actual: {}'.format(str(preds), str(label)))
     plt.title( '{} \n {}'.format(str(preds), str(label)))
-
     plt.axis('off')
     
-# idx = random.randint(1,32)
-# preds = model_final.predict(imgs[idx,np.newaxis,...])
-# preds = np.around(preds*100,0)
-
-# plt.title( 'Predicted: {} \n Actual: {}'.format(str(preds), str(labels[idx,:])))
-# plt.axis('off')
-# plt.imshow(imgs_show[idx,...])
-
 #%%
-#image_list = []
-#for filename in glob(os.path.join(test_dir, '*.jpg')):
-#     im = misc.imread(filename)
-#     print('reading', filename)
-#     im = cv2.resize(im, dsize=(128, 128), interpolation=cv2.INTER_CUBIC)
-#     image_list.append(im[np.newaxis,...]/255)
-#
-# image_list = np.concatenate((image_list), axis=0)
-
+# Visualize feature maps
+# Import VGG-16 model
 model = VGG16()
-# summarize feature map shapes
-for i in range(len(model.layers)):
-	layer = model.layers[i]
-# redefine model to output right after the first hidden layer
-feature1 = Model(inputs=model.inputs, outputs=model.layers[15].output)
-feature2 = Model(inputs=model.inputs, outputs=model.layers[17].output)
 
+# for i in range(len(model.layers)):
+# 	layer = model.layers[i]
+
+# Define input and output for the desired convolution block
+feature1 = Model(inputs=model.inputs, outputs=model.layers[1].output)
+feature2 = Model(inputs=model.inputs, outputs=model.layers[2].output)
+
+# Extract outputs after specific convolution layer
 feature_map1 = feature1.predict(np.expand_dims(img,axis=0))
 feature_map2 = feature2.predict(np.expand_dims(img,axis=0))
 
+# Combine multiple feature maps (if necessary)
 feature_map = np.concatenate((feature_map1,feature_map2),axis=3)
 
-# plot all 64 maps in an 8x8 squares
-square = 8
+# Define figure window for feature maps
 ix = 1
 for _ in range(2):
     for _ in range(5):
-		# specify subplot and turn of axis
         ax = plt.subplot(2, 5, ix)
         ax.set_xticks([])
         ax.set_yticks([])
         idx = random.randint(1,feature_map.shape[3])
-		# plot filter channel in grayscale
-        plt.imshow(feature_map[0, :, :, idx],cmap='gray')
+        plt.imshow(feature_map[0, :, :, idx],cmap='gray') # Plot feature maps in grayscale
         ix += 1
 # show the figure
 plt.show()
+
+
 #%%
 # Auto-Encoder part
 from tensorflow.keras.layers import *
 from tensorflow.keras.models import Model
 
+# Define training input
 training_generator = training_data_generator.flow_from_directory(
     training_dir,
     target_size=(img_size, img_size),
@@ -210,6 +201,7 @@ training_generator = training_data_generator.flow_from_directory(
     class_mode="input",subset='training',
     shuffle=True)
 
+# Define validation input
 validation_generator = training_data_generator.flow_from_directory(
     training_dir,
     target_size=(img_size, img_size),
@@ -217,10 +209,12 @@ validation_generator = training_data_generator.flow_from_directory(
     class_mode="input",subset='validation',
     shuffle=True)
 
-
+# bottle-neck size
 latent_dim = 32
+# Input size
 inputs = Input(shape=(224,224,3),name = 'image_input')
 
+##### MODEL 1: ENCODER #####
 x = Convolution2D(32, (3, 3), padding='same')(inputs)
 x = ELU()(x)
 x = MaxPooling2D((2, 2), padding='same')(x)
@@ -229,15 +223,15 @@ x = Convolution2D(64, (3, 3), padding='same')(x)
 x = ELU()(x)
 x = MaxPooling2D((2, 2), padding='same')(x)
 
-    # Latent space // bottleneck layer
+# Latent space // bottleneck layer
 x = Flatten()(x)
 x = Dense(latent_dim)(x)
 z = ELU()(x)
 
-    ##### MODEL 1: ENCODER #####
 encoder = Model(inputs, z)
 
-    # Create decoder
+##### MODEL 3: DECODER #####
+# the bottleneck layer becomes the input to the decoder model
 input_z = Input(shape=(latent_dim,))
 x_decoded_dense0 = Dense(56 * 56 * 64)(input_z)
 x_decoded_activation0 = ELU()(x_decoded_dense0)
@@ -247,15 +241,13 @@ x_decoded_upsample0 = Conv2DTranspose(64, (2, 2), strides=(2, 2), padding='same'
 x_decoded_conv0 = Convolution2D(32, (3, 3), padding='same')(x_decoded_upsample0)
 x_decoded_activation1 = ELU()(x_decoded_conv0)
 
-    # Tanh layer
 x_decoded_upsample1 = Conv2DTranspose(32, (2, 2), strides=(2, 2), padding='same')(x_decoded_activation1)
 decoded_decoder_img = Convolution2D(1, (3, 3), activation='sigmoid', padding='same')(x_decoded_upsample1)
 
-    ##### MODEL 3: DECODER #####
 decoder = Model(input_z, decoded_decoder_img)
 
+# fully defined encoder-decoder model
 full = decoder(encoder(inputs))
-#autoencoder = Model(input_img, decoded_decoder_img)
 
 model = Model(inputs, full)
 model.compile(optimizer='adam', loss='mean_squared_error')
@@ -265,10 +257,11 @@ early = EarlyStopping(monitor='val_loss', min_delta=0, patience=20, verbose=1, m
 model.fit_generator(generator= training_generator, steps_per_epoch= len(training_generator.filenames) // BATCH_SIZE, 
                           epochs= 100, validation_data= validation_generator, validation_steps=len(validation_generator.filenames) // BATCH_SIZE, 
                           callbacks=[checkpoint,early])
-model.save_weights("custom_CNN.h5")
+# model.save_weights("custom_CNN.h5")
 
 
 #%%
+# Visualizing clusters using t-SNE
 from sklearn import manifold
 from matplotlib.offsetbox import OffsetImage, AnnotationBbox
 
@@ -279,8 +272,6 @@ def imscatter(x, y, ax, imageData, zoom):
         # Convert to image
         img = imageData[i]*255.
         img = img.astype(np.uint8).reshape([224,224,3])
-#        img = cv2.cvtColor(img,cv2.COLOR_GRAY2RGB)
-        # Note: OpenCV uses BGR and plt uses RGB
         image = OffsetImage(img, zoom=zoom)
         ab = AnnotationBbox(image, (x0, y0), xycoords='data', frameon=False)
         images.append(ax.add_artist(ab))
@@ -294,16 +285,14 @@ iterator = gen.flow_from_directory(
     test_dir, 
     batch_size=80,
     target_size=(img_size,img_size)) 
-#    classes=('Aulacomium palustre','Helodium blandowii','Thuidium recognitum','Tomentypnum nitens'))
 
 gen_show = ImageDataGenerator()
 iterator_show = gen_show.flow_from_directory(
     test_dir, 
     batch_size=80,
     target_size=(img_size,img_size))
-#    classes=('Aulacomium palustre','Helodium blandowii','Thuidium recognitum','Tomentypnum nitens'))
-# we can guess that the iterator has a next function, 
-# because all python iterators have one. 
+
+
 batch = iterator.next()
 batch_show = iterator_show.next()
 
@@ -314,17 +303,16 @@ labels = batch[1]
 X_encoded = encoder.predict(imgs)
 X_decoded = decoder.predict(X_encoded)
 
-    # Compute t-SNE embedding of latent space
+# Compute t-SNE embedding of bottleneck
 print("Computing t-SNE embedding...")
 tsne = manifold.TSNE(n_components=2, init='pca', random_state=0)
 X_tsne = tsne.fit_transform(X_encoded)
 
-    # Plot images according to t-sne embedding
+# Plot images according to t-sne embedding
 print("Plotting t-SNE visualization...")
 fig, ax = plt.subplots()
 imscatter(X_tsne[:, 0], X_tsne[:, 1], imageData=imgs_show, ax=ax, zoom=0.6)
 plt.show()
-
 
 
 fig, ax = plt.subplots(1, 2)
